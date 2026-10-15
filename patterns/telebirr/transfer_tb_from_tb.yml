@@ -1,0 +1,62 @@
+name: TRANSFER_TB_FROM_TB
+provider: telebirr
+category: transfer
+order: 184
+status: done
+identifier:
+  pattern: '(?=[\s\S]*VAT)(?=[\s\S]*service fee is\s+ETB)You have transferred ETB [\d,.]+\s+(?!Tip\b)to [\s\S]+?Your transaction number is'
+  flags: is
+regexes:
+  SENDER_NAME:
+    pattern: '^Dear\s*([\w\s]+?)\s*You '
+    flags: i
+  AMOUNT:
+    pattern: 'transferred ETB\s*([\d,]+(?:\.\d+)?)'
+    flags: i
+  TXN_ID:
+    pattern: 'transaction number is\s*([A-Z0-9]+)'
+    flags: i
+  RECIPIENT_NAME:
+    pattern: '\bto\s+([^(]+?)(?:\s*[\(]|\s+(?:on|at)\s)'
+    flags: i
+  RECIPIENT_PHONE:
+    pattern: '(?:\(\s*(\+?[\d*]+)\s*\)|to\s+(\d{10,})\s)'
+    flags: i
+  DATETIME:
+    pattern: '(?:on|at)\s*([\d/:-]+\s[\d:]+)'
+    flags: i
+  SERVICE_FEE:
+    pattern: '(?:The\s+)?service (?:fee|charge)(?:.*?)?is\s*ETB\s*([\d,]+(?:\.\d+)?)'
+    flags: i
+  VAT_AMOUNT:
+    pattern: '(?:\d+%\s+)?(?:VAT(?:\s+is\s+ETB|\s+on\s+the\s+service\s+fee\s+is\s+ETB))\s*([\d,]+\.?\d*)'
+    flags: i
+  BALANCE:
+    pattern: 'balance is ETB *([0-9,]+(?:\.[0-9]+)?)'
+    flags: i
+  RECEIPT_URL:
+    pattern: '(https:\/\/transactioninfo.ethiotelecom.et\/receipt\/[^\s.]+)'
+    flags: i
+    fallback:
+      template: 'https://transactioninfo.ethiotelecom.et/receipt/{TXN_ID}'
+extraction:
+  direction: OUTGOING
+  amounts:
+    principal: AMOUNT
+    fees:
+      - SERVICE_FEE
+      - VAT_AMOUNT
+    balance: BALANCE
+  participants:
+    - fields:
+        name: SENDER_NAME
+      role: SENDER
+      type: CUSTOMER
+    - fields:
+        name: RECIPIENT_NAME
+        phone: RECIPIENT_PHONE
+      role: RECEIVER
+      type: CUSTOMER
+  transactionIds:
+    telebirr: TXN_ID
+  timestampField: DATETIME

@@ -1,0 +1,57 @@
+name: TELEBIRR_RECEIVE_P2P
+provider: telebirr
+category: transfer
+order: 170
+status: done
+
+identifier:
+  pattern: 'You have received ETB [\d,.]+\s+from '
+  flags: i
+
+regexes:
+  RECEIVER_NAME:
+    pattern: '^Dear\s+([\w\s]+?)\s*\n'
+    flags: i
+  AMOUNT:
+    pattern: 'received ETB\s*([\d,]+(?:\.\d+)?)'
+    flags: i
+  SENDER_NAME:
+    pattern: '\bfrom\s+([^(]+?)\s*\('
+    flags: i
+  SENDER_PHONE:
+    pattern: '\(\s*(\+?[\d*]+)\s*\)'
+    flags: i
+  DATETIME:
+    pattern: '(?:on|at)\s*([\d/:-]+\s[\d:]+)'
+    flags: i
+  TXN_ID:
+    pattern: 'transaction number is\s*([A-Z0-9]+)'
+    flags: i
+  BALANCE:
+    pattern: 'balance is ETB *([0-9,]+(?:\.[0-9]+)?)'
+    flags: i
+  RECEIPT_URL:
+    pattern: '(https:\/\/transactioninfo.ethiotelecom.et\/receipt\/[^\s.]+)'
+    flags: i
+    optional: true
+    fallback:
+      template: 'https://transactioninfo.ethiotelecom.et/receipt/{TXN_ID}'
+
+extraction:
+  direction: INCOMING
+  amounts:
+    principal: AMOUNT
+    balance: BALANCE
+  participants:
+    - fields:
+        name: SENDER_NAME
+        phone: SENDER_PHONE
+      role: SENDER
+      type: CUSTOMER
+    - fields:
+        name: RECEIVER_NAME
+      role: RECEIVER
+      type: CUSTOMER
+  transactionIds:
+    telebirr: TXN_ID
+  timestampField: DATETIME

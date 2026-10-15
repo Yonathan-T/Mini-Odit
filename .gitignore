@@ -1,0 +1,30 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+odition
+
+# Test binaries
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# Fonts & Web Assets
+fonts/
+public/fonts/
+*.ttf
+*.woff
+*.woff2
+*.eot
+*.otf
+
+# OS specific files
+.DS_Store
+Thumbs.db

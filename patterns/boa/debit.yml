@@ -1,0 +1,42 @@
+name: BOA_DEBIT
+provider: boa
+category: debit
+order: 100
+status: done
+
+identifier:
+  pattern: 'was debited with ETB [\d,.]+(?!\s+by\b)'
+  flags: i
+
+regexes:
+  CUSTOMER_NAME:
+    pattern: '^Dear\s+([^,]+),'
+    flags: i
+  ACCOUNT:
+    pattern: 'your account\s+([^\s]+)\s+was debited'
+    flags: i
+  AMOUNT:
+    pattern: 'debited with ETB\s*([\d,]+(?:\.\d+)?)'
+    flags: i
+  BALANCE:
+    pattern: 'Available Balance:\s*ETB\s*([\d,]+(?:\.\d+)?)'
+    flags: i
+  TXN_ID:
+    pattern: 'trx=([A-Z0-9]+)'
+    flags: i
+  RECEIPT_URL:
+    pattern: 'Receipt:\s*(https:\/\/[^\s]+)'
+    flags: i
+
+extraction:
+  direction: OUTGOING
+  amounts:
+    principal: AMOUNT
+    balance: BALANCE
+  participants:
+    - fields:
+        name: CUSTOMER_NAME
+      role: SENDER
+      type: CUSTOMER
+  transactionIds:
+    boa: TXN_ID

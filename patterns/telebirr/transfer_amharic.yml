@@ -1,0 +1,65 @@
+name: TELEBIRR_TRANSFER_AMHARIC
+provider: telebirr
+category: transfer
+order: 180
+status: done
+
+identifier:
+  pattern: 'ወደ\s+[\s\S]+?ብር\s+በ\s+[\s\S]+?ልከዋል።\s*የሂሳብ እንቅስቃሴ ቁጥርዎ'
+  flags: is
+
+regexes:
+  SENDER_NAME:
+    pattern: '^ውድ\s+([\w\s]+?)\s*\n'
+    flags: i
+  RECIPIENT_NAME:
+    pattern: 'ወደ\s+([^(]+?)\s*\('
+    flags: i
+  RECIPIENT_PHONE:
+    pattern: '\(\s*(\+?[\d*]+)\s*\)'
+    flags: i
+  AMOUNT:
+    pattern: '\)\s*([\d,]+(?:\.\d+)?)\s*ብር'
+    flags: i
+  DATETIME:
+    pattern: 'በ\s*([\d/:-]+\s[\d:]+)\s*ልከዋል'
+    flags: i
+  TXN_ID:
+    pattern: 'የሂሳብ እንቅስቃሴ ቁጥርዎ\s*([A-Z0-9]+)'
+    flags: i
+  SERVICE_FEE:
+    pattern: 'የአገልግሎት ክፍያው\s*([\d,]+(?:\.\d+)?)\s*ብር'
+    flags: i
+  VAT_AMOUNT:
+    pattern: 'VAT\s*([\d,]+(?:\.\d+)?)\s*ብር'
+    flags: i
+  BALANCE:
+    pattern: 'ቀሪ ሂሳብ\s*([\d,]+(?:\.\d+)?)\s*ብር'
+    flags: i
+  RECEIPT_URL:
+    pattern: '(https:\/\/transactioninfo.ethiotelecom.et\/receipt\/[^\s.]+)'
+    flags: i
+    fallback:
+      template: 'https://transactioninfo.ethiotelecom.et/receipt/{TXN_ID}'
+
+extraction:
+  direction: OUTGOING
+  amounts:
+    principal: AMOUNT
+    fees:
+      - SERVICE_FEE
+      - VAT_AMOUNT
+    balance: BALANCE
+  participants:
+    - fields:
+        name: SENDER_NAME
+      role: SENDER
+      type: CUSTOMER
+    - fields:
+        name: RECIPIENT_NAME
+        phone: RECIPIENT_PHONE
+      role: RECEIVER
+      type: CUSTOMER
+  transactionIds:
+    telebirr: TXN_ID
+  timestampField: DATETIME

@@ -1,0 +1,49 @@
+name: BOA_CREDIT_P2P
+provider: boa
+category: transfer
+order: 90
+status: done
+
+identifier:
+  pattern: 'was credited with ETB [\d,.]+\s+by\s+'
+  flags: i
+
+regexes:
+  CUSTOMER_NAME:
+    pattern: '^Dear\s+([^,]+),'
+    flags: i
+  ACCOUNT:
+    pattern: 'your account\s+([^\s]+)\s+was credited'
+    flags: i
+  AMOUNT:
+    pattern: 'credited with ETB\s*([\d,]+(?:\.\d+)?)'
+    flags: i
+  SENDER_NAME:
+    pattern: '\bby\s+([^.]+?)\s*\.'
+    flags: i
+  BALANCE:
+    pattern: 'Available Balance:\s*ETB\s*([\d,]+(?:\.\d+)?)'
+    flags: i
+  TXN_ID:
+    pattern: 'trx=([A-Z0-9]+)'
+    flags: i
+  RECEIPT_URL:
+    pattern: 'Receipt:\s*(https:\/\/[^\s]+)'
+    flags: i
+
+extraction:
+  direction: INCOMING
+  amounts:
+    principal: AMOUNT
+    balance: BALANCE
+  participants:
+    - fields:
+        name: SENDER_NAME
+      role: SENDER
+      type: CUSTOMER
+    - fields:
+        name: CUSTOMER_NAME
+      role: RECEIVER
+      type: CUSTOMER
+  transactionIds:
+    boa: TXN_ID
