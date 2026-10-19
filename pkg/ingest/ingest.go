@@ -13,13 +13,15 @@ import (
 )
 
 type IngestResult struct {
-	TotalParsed    int
-	TotalIgnored   int
-	TotalUnmatched int
-	TotalScanned   int
-	Duration       time.Duration
-	Transactions   []*model.Transaction
-	Unmatched      []string
+	TotalParsed     int
+	TotalIgnored    int
+	TotalUnmatched  int
+	TotalScanned    int
+	TotalFastRouted int
+	TotalFallbacks  int
+	Duration        time.Duration
+	Transactions    []*model.Transaction
+	Unmatched       []string
 }
 
 type Ingester struct {
@@ -55,9 +57,9 @@ func (in *Ingester) IngestChunks(chunks []string) *IngestResult {
 	}
 
 	for _, clean := range chunks {
-		txn, err := in.engine.Parse(clean)
-		if err != nil {
-			if errors.Is(err, engine.ErrIgnored) {
+		trace := in.engine.ParseWithTrace(clean)
+		if trace.Err != nil {
+			if errors.Is(trace.Err, engine.ErrIgnored) {
 				res.TotalIgnored++
 			} else {
 				res.TotalUnmatched++
@@ -65,8 +67,13 @@ func (in *Ingester) IngestChunks(chunks []string) *IngestResult {
 			}
 			continue
 		}
+		if trace.FallbackUsed {
+			res.TotalFallbacks++
+		} else if trace.RoutedProvider != "" {
+			res.TotalFastRouted++
+		}
 		res.TotalParsed++
-		res.Transactions = append(res.Transactions, txn)
+		res.Transactions = append(res.Transactions, trace.Txn)
 	}
 
 	res.Duration = time.Since(start)

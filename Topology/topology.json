@@ -1,0 +1,14 @@
+{
+  "families":[
+    {
+      "id":"telebirr",
+      "code": 1,
+      "anchors":["telebirr","127","ቴሌብር"]
+    },
+    {
+      "id":"boa",
+      "code": 2,
+      "anchors":["bankofabyssinia", "8397", "abyssinia", "አቢሲንያ"]
+    }
+  ]
+}

@@ -12,10 +12,12 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"odition/config"
 	"odition/pkg/engine"
 	"odition/pkg/ingest"
 	"odition/pkg/ledger"
 	"odition/pkg/model"
+	"odition/pkg/router"
 )
 
 var (
@@ -78,6 +80,15 @@ func initialModel() modelState {
 	if err := eng.LoadFromDir(patternsDir); err != nil {
 		patternsDir = filepath.Join("..", "..", "patterns")
 		_ = eng.LoadFromDir(patternsDir)
+	}
+
+	topoPath := filepath.Join("Topology", "topology.json")
+	if _, err := os.Stat(topoPath); err != nil {
+		topoPath = filepath.Join("..", "..", "Topology", "topology.json")
+	}
+	top, err := config.Load(topoPath)
+	if err == nil {
+		eng.Router = router.NewRouter(top)
 	}
 
 	ing := ingest.NewIngester(eng)
@@ -164,10 +175,25 @@ func (m modelState) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.index < len(m.chunks) {
 			m.scanIndex = msg.index + 1
 			chunk := m.chunks[msg.index]
-			txn, err := m.eng.Parse(chunk)
-			if err == nil {
+			startT := time.Now()
+			trace := m.eng.ParseWithTrace(chunk)
+			dur := time.Since(startT)
+			micros := dur.Microseconds()
+			if micros == 0 {
+				micros = 1
+			}
+
+			if trace.Err == nil {
+				txn := trace.Txn
+				modeTag := "ROUTED"
+				if trace.FallbackUsed {
+					modeTag = fmt.Sprintf("FALLBACK (%s -> %s)", trace.RoutedProvider, trace.FinalProvider)
+				} else if trace.RoutedProvider == "" {
+					modeTag = "GLOBAL"
+				}
+
 				if txn.Category == "promo" {
-					m.scanPreview = fmt.Sprintf("[PROMO] %s", txn.PatternName)
+					m.scanPreview = fmt.Sprintf("[%s · %dµs] [PROMO] %s", modeTag, micros, txn.PatternName)
 				} else {
 					target := ""
 					for _, p := range txn.Participants {
@@ -176,16 +202,16 @@ func (m modelState) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							break
 						}
 					}
-					m.scanPreview = fmt.Sprintf("[%s] %s %.2f ETB%s", strings.ToUpper(txn.Provider), txn.Direction, txn.Principal, target)
+					m.scanPreview = fmt.Sprintf("[%s · %dµs] [%s] %s %.2f ETB%s", modeTag, micros, strings.ToUpper(txn.Provider), txn.Direction, txn.Principal, target)
 				}
-			} else if errors.Is(err, engine.ErrIgnored) {
-				m.scanPreview = "[IGNORED] Bare OTP / Security PSA (0.015µs)"
+			} else if errors.Is(trace.Err, engine.ErrIgnored) {
+				m.scanPreview = fmt.Sprintf("[IGNORED · %dµs] Bare OTP / Security PSA", micros)
 			} else {
-				m.scanPreview = "[UNMATCHED] Non-conforming bank text"
+				m.scanPreview = fmt.Sprintf("[UNMATCHED · %dµs] Non-conforming bank text", micros)
 			}
 			m.spinnerIndex = (m.spinnerIndex + 1) % len(spinnerFrames)
 			nextIdx := msg.index + 1
-			return m, tea.Tick(35*time.Millisecond, func(t time.Time) tea.Msg {
+			return m, tea.Tick(75*time.Millisecond, func(t time.Time) tea.Msg {
 				return scanStepMsg{index: nextIdx}
 			})
 		}
@@ -227,7 +253,7 @@ func (m modelState) View() string {
 		fmt.Fprintf(&scanContent, "%s %s Ingesting inbox/messages.txt...\n\n", greenStyle.Render(frame), goldStyle.Render("SCANNER:"))
 		fmt.Fprintf(&scanContent, "Progress: [%s] %s (%d / %d messages)\n", greenStyle.Render(bar), goldStyle.Render(fmt.Sprintf("%3d%%", pct)), m.scanIndex, len(m.chunks))
 		fmt.Fprintf(&scanContent, "Inspecting: %s\n\n", greenStyle.Render(m.scanPreview))
-		fmt.Fprintf(&scanContent, "Status:   %s\n", subHeaderStyle.Render("Testing Layer 1 (Ignored) -> Layer 2 (Promos) -> Layer 3 (Regexp2)"))
+		fmt.Fprintf(&scanContent, "Pipeline:   %s\n", subHeaderStyle.Render("Anchor Router ➔ Fast Provider Bucket ➔ Fallback Sequential Scan"))
 
 		scanPanel := panelStyle.Width(94).Render(scanContent.String())
 		b.WriteString(scanPanel + "\n")
@@ -368,13 +394,13 @@ func (m modelState) View() string {
 		timeStr = fmt.Sprintf("%d ns", m.parseTime.Nanoseconds())
 	}
 
-	status := fmt.Sprintf("Scanned %d/%d msgs in %s · %s Parsed · %s Ignored · %s Unmatched    [r] Rescan    [q] Quit",
-		totalMsgs,
+	status := fmt.Sprintf("Scanned %d msgs in %s · %s Parsed (%s Routed, %s Fallback) · %s Ignored    [r] Rescan    [q] Quit",
 		totalMsgs,
 		greenStyle.Render(timeStr),
 		greenStyle.Render(fmt.Sprintf("%d", m.result.TotalParsed)),
+		goldStyle.Render(fmt.Sprintf("%d", m.result.TotalFastRouted)),
+		redStyle.Render(fmt.Sprintf("%d", m.result.TotalFallbacks)),
 		fmt.Sprintf("%d", m.result.TotalIgnored),
-		fmt.Sprintf("%d", m.result.TotalUnmatched),
 	)
 	b.WriteString(subHeaderStyle.Render(status) + "\n")
 

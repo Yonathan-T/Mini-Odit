@@ -4,7 +4,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	"odition/config"
 	"odition/pkg/model"
+	"odition/pkg/router"
 )
 
 func TestParseRealBlogSMS(t *testing.T) {
@@ -277,5 +279,118 @@ You have transferred ETB 20.00 Tip to dagim alemu (2519****5183) on 12/09/2026 0
 	_, err := eng.Parse(tipSMS)
 	if err == nil {
 		t.Fatalf("Expected tip message to be rejected by TRANSFER_TB_FROM_TB identifier, but it matched!")
+	}
+}
+
+func TestCrossBankRouterFallback(t *testing.T) {
+	eng := NewEngine()
+	patternsDir := filepath.Join("..", "..", "patterns")
+	if err := eng.LoadFromDir(patternsDir); err != nil {
+		t.Fatalf("Failed to load patterns: %v", err)
+	}
+
+	topoPath := filepath.Join("..", "..", "Topology", "topology.json")
+	top, err := config.Load(topoPath)
+	if err != nil {
+		t.Fatalf("Failed to load topology: %v", err)
+	}
+	eng.Router = router.NewRouter(top)
+
+	crossBankSMS := `Dear Yonathan, your account 1*00 was debited with ETB 201.20 via telebirr transfer. Available Balance: ETB 3,935.20.
+Receipt: https://cs.bankofabyssinia.com/slip/?trx=FT260000000000001
+Feedback: https://cs.bankofabyssinia.com/cs/?trx=DFT2600000000
+Link your Fayda: https://cs.bankofabyssinia.com/fayda_connect 
+For help, call 8397 (24/7 Toll-Free). Bank of Abyssinia.`
+
+	txn, err := eng.Parse(crossBankSMS)
+	if err != nil {
+		t.Fatalf("Cross-bank SMS failed to parse with fallback re-routing: %v", err)
+	}
+
+	if txn.Provider != "boa" {
+		t.Errorf("Expected provider boa after fallback, got %s", txn.Provider)
+	}
+	if txn.Principal != 201.20 {
+		t.Errorf("Expected principal 201.20, got %f", txn.Principal)
+	}
+}
+
+func TestRouterTrace(t *testing.T) {
+	eng := NewEngine()
+	patternsDir := filepath.Join("..", "..", "patterns")
+	if err := eng.LoadFromDir(patternsDir); err != nil {
+		t.Fatalf("Failed to load patterns: %v", err)
+	}
+
+	topoPath := filepath.Join("..", "..", "Topology", "topology.json")
+	top, err := config.Load(topoPath)
+	if err != nil {
+		t.Fatalf("Failed to load topology: %v", err)
+	}
+	eng.Router = router.NewRouter(top)
+
+	cases := []struct {
+		name             string
+		sms              string
+		expectedRouted   string
+		expectedFallback bool
+		expectedFinal    string
+	}{
+		{
+			name: "Direct Route - Telebirr P2P",
+			sms: `Dear Robel
+You have transferred ETB 20.00 to dagim alemu (2519****5183) on 12/09/2026 00:08:40. Your transaction number is DIC6NJHLOC. The service fee is  ETB 0.87 and  15% VAT on the service fee is ETB 0.13. Your current E-Money Account  balance is ETB 6,127.70. To download your payment information please click this link: https://transactioninfo.ethiotelecom.et/receipt/DIC6NJHLOC.
+
+Thank you for using telebirr
+Ethio telecom`,
+			expectedRouted:   "telebirr",
+			expectedFallback: false,
+			expectedFinal:    "telebirr",
+		},
+		{
+			name: "Direct Route - BOA Debit",
+			sms: `Dear Yonathan, your account 1*00 was debited with ETB 50.00. Available Balance: ETB 3,935.20.
+Receipt: https://cs.bankofabyssinia.com/slip/?trx=FT260000000000001
+Feedback: https://cs.bankofabyssinia.com/cs/?trx=DFT2600000000
+Link your Fayda: https://cs.bankofabyssinia.com/fayda_connect 
+For help, call 8397 (24/7 Toll-Free). Bank of Abyssinia.`,
+			expectedRouted:   "boa",
+			expectedFallback: false,
+			expectedFinal:    "boa",
+		},
+		{
+			name: "Fallback Sequential Scan - BOA referencing Telebirr",
+			sms: `Dear Yonathan, your account 1*00 was debited with ETB 201.20 via telebirr transfer. Available Balance: ETB 3,935.20.
+Receipt: https://cs.bankofabyssinia.com/slip/?trx=FT260000000000001
+Feedback: https://cs.bankofabyssinia.com/cs/?trx=DFT2600000000
+Link your Fayda: https://cs.bankofabyssinia.com/fayda_connect 
+For help, call 8397 (24/7 Toll-Free). Bank of Abyssinia.`,
+			expectedRouted:   "telebirr",
+			expectedFallback: true,
+			expectedFinal:    "boa",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			trace := eng.ParseWithTrace(tc.sms)
+			if trace.Err != nil {
+				t.Fatalf("Parse error: %v", trace.Err)
+			}
+			t.Logf("[%s]", tc.name)
+			t.Logf("  Initial Route Anchor Bucket: %q", trace.RoutedProvider)
+			t.Logf("  Fallback Sequential Scan Used: %v", trace.FallbackUsed)
+			t.Logf("  Final Matched Provider: %q", trace.FinalProvider)
+
+			if trace.RoutedProvider != tc.expectedRouted {
+				t.Errorf("Expected routed provider %q, got %q", tc.expectedRouted, trace.RoutedProvider)
+			}
+			if trace.FallbackUsed != tc.expectedFallback {
+				t.Errorf("Expected fallback %v, got %v", tc.expectedFallback, trace.FallbackUsed)
+			}
+			if trace.FinalProvider != tc.expectedFinal {
+				t.Errorf("Expected final provider %q, got %q", tc.expectedFinal, trace.FinalProvider)
+			}
+		})
 	}
 }

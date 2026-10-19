@@ -16,12 +16,13 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"odition/pkg/model"
+	"odition/pkg/router"
 )
 
 var (
-	ErrIgnored          = errors.New("message is in ignored set")
-	ErrNoMatch          = errors.New("no pattern matched message")
-	ErrMissingRequired  = errors.New("missing required field in extraction")
+	ErrIgnored         = errors.New("message is in ignored set")
+	ErrNoMatch         = errors.New("no pattern matched message")
+	ErrMissingRequired = errors.New("missing required field in extraction")
 )
 
 var placeholderRegex = regexp.MustCompile(`\{([A-Za-z0-9_]+)\}`)
@@ -39,10 +40,11 @@ type CompiledPattern struct {
 }
 
 type Engine struct {
-	IgnoredSet   map[string]struct{}
-	ExactPromos  map[string]string
-	Patterns     []CompiledPattern
-	ProviderMap  map[string][]CompiledPattern
+	Router      *router.Router
+	IgnoredSet  map[string]struct{}
+	ExactPromos map[string]string
+	Patterns    []CompiledPattern
+	ProviderMap map[string][]CompiledPattern
 }
 
 func NewEngine() *Engine {
@@ -100,6 +102,8 @@ func (e *Engine) LoadFromDir(dir string) error {
 			return fmt.Errorf("compiling pattern %s: %w", path, err)
 		}
 
+		provKey := strings.ToLower(compiled.Def.Provider)
+		e.ProviderMap[provKey] = append(e.ProviderMap[provKey], compiled)
 		loadedPatterns = append(loadedPatterns, compiled)
 		return nil
 	})
@@ -217,8 +221,37 @@ func compilePattern(def model.PatternDefinition) (CompiledPattern, error) {
 	}, nil
 }
 
+type TraceResult struct {
+	RoutedProvider string
+	FallbackUsed   bool
+	FinalProvider  string
+	Txn            *model.Transaction
+	Err            error
+}
+
+func (e *Engine) ParseWithTrace(rawSMS string) TraceResult {
+	trace := TraceResult{}
+	if e.Router != nil {
+		trace.RoutedProvider, _ = e.Router.Route(rawSMS)
+	}
+
+	txn, err := e.ParseWithProvider(trace.RoutedProvider, rawSMS)
+	if err != nil && errors.Is(err, ErrNoMatch) && trace.RoutedProvider != "" {
+		trace.FallbackUsed = true
+		txn, err = e.ParseWithProvider("", rawSMS)
+	}
+
+	trace.Txn = txn
+	trace.Err = err
+	if txn != nil {
+		trace.FinalProvider = txn.Provider
+	}
+	return trace
+}
+
 func (e *Engine) Parse(rawSMS string) (*model.Transaction, error) {
-	return e.ParseWithProvider("", rawSMS)
+	res := e.ParseWithTrace(rawSMS)
+	return res.Txn, res.Err
 }
 
 func (e *Engine) ParseWithProvider(provider string, rawSMS string) (*model.Transaction, error) {
